@@ -8,6 +8,6 @@ public class CellDemoTarget : TargetRules
 	public CellDemoTarget(TargetInfo Target) : base(Target)
 	{
 		Type = TargetType.Game;
-		ExtraModuleNames.Add("CellDemo");
-	}
+        ExtraModuleNames.AddRange(new string[] { "CellDemo" });
+    }
 }
