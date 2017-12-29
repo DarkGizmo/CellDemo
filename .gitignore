@@ -10,3 +10,7 @@ Collections
 Logs
 /Saved/AutoScreenshot.png
 CrashReportClient
+*.db
+Backup
+Windows
+/Saved/Config/WorldState
