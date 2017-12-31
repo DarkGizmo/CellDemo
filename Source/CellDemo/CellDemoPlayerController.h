@@ -14,6 +14,24 @@ class ACellDemoPlayerController : public APlayerController
 public:
 	ACellDemoPlayerController();
 
+	UPROPERTY(BlueprintReadOnly)
+	FName OnlineSessionName;
+
+	UPROPERTY(BlueprintReadOnly)
+	FString OnlineSessionId;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool Connecting;
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Network")
+	void OnConnecting();
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Network")
+	void OnConnected();
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Network")
+	void OnDisconnected();
+	
 protected:
 	/** True if the controlled character should navigate to the mouse cursor. */
 	uint32 bMoveToMouseCursor : 1;

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Engine/GameInstance.h"
 #include "Interfaces/OnlineSessionInterface.h"
+#include "CellDemoPlayerController.h"
 #include "CellNWGameInstance.generated.h"
 
 /**
@@ -14,7 +15,14 @@ UCLASS()
 class CELLDEMO_API UCellNWGameInstance : public UGameInstance
 {
 	GENERATED_BODY()
-	
+
+public:
+	UPROPERTY(BlueprintReadWrite)
+	bool bShowDebugMsg;
+
+	UPROPERTY(BlueprintReadOnly)
+	FString CurrentSessionId;
+
 	// *******************************
 	// Hosting
 	// *******************************
@@ -28,7 +36,7 @@ class CELLDEMO_API UCellNWGameInstance : public UGameInstance
 		*	@Param		bIsPresence		"Is the Session to create a presence Session"
 		*	@Param		MaxNumPlayers	        Number of Maximum allowed players on this "Session" (Server)
 		*/
-		bool HostSession(TSharedPtr<const FUniqueNetId> UserId, FString MapName, FName SessionName, bool bIsLAN, bool bIsPresence, int32 MaxNumPlayers);
+		bool HostSession(TSharedPtr<const FUniqueNetId> UserId, FString MapName, FString SessionId, FName SessionName, bool bIsLAN, bool bIsPresence, int32 MaxNumPlayers);
 
 	/* Delegate called when session created */
 	FOnCreateSessionCompleteDelegate OnCreateSessionCompleteDelegate;
@@ -70,10 +78,10 @@ class CELLDEMO_API UCellNWGameInstance : public UGameInstance
 	*	@param bIsLAN are we searching LAN matches
 	*	@param bIsPresence are we searching presence sessions
 	*/
-	void FindSessions(TSharedPtr<const FUniqueNetId> UserId, bool bIsLAN, bool bIsPresence);
+	void FindSessions(ULocalPlayer* const Player, bool bIsLAN, bool bIsPresence, bool bAutoJoin, const FString& SessionId);
 
 	/** Delegate for searching for sessions */
-	FOnFindSessionsCompleteDelegate OnFindSessionsCompleteDelegate;
+	FOnFindSessionsCompleteDelegate OnFindAndJoinFindSessionsCompleteDelegate;
 
 	/** Handle to registered delegate for searching a session */
 	FDelegateHandle OnFindSessionsCompleteDelegateHandle;
@@ -85,7 +93,7 @@ class CELLDEMO_API UCellNWGameInstance : public UGameInstance
 	*
 	*	@param bWasSuccessful true if the async action completed without error, false if there was an error
 	*/
-	void OnFindSessionsComplete(bool bWasSuccessful);
+	void OnFindAndJoinFindSessionsComplete(bool bWasSuccessful);
 
 	// *******************************
 	// Joining
@@ -137,17 +145,20 @@ class CELLDEMO_API UCellNWGameInstance : public UGameInstance
 	// *******************************
 
 	UFUNCTION(BlueprintCallable, Category = "Network|Test")
-	void StartOnlineGame(FString MapName);
+	void StartOnlineGame(FString MapName, int NumberOfPlayer, FString SessionId);
 
 	UFUNCTION(BlueprintCallable, Category = "Network|Test")
-	void FindOnlineGames();
+	void FindOnlineGames(FString SessionId);
 
 	UFUNCTION(BlueprintCallable, Category = "Network|Test")
 	void JoinOnlineGame();
 
 	UFUNCTION(BlueprintCallable, Category = "Network|Test")
+	void FindAndJoinOnlineGame(FString SessionId);
+
+	UFUNCTION(BlueprintCallable, Category = "Network|Test")
 	void DestroySessionAndLeaveGame();
 
 	UFUNCTION(BlueprintCallable, Category = "Network|Test")
-	void GetOnlineGameStatus(bool& bIsInOnlineGame, bool& bIsServer);
+	void GetOnlineGameStatus(ACellDemoPlayerController* controller, bool& bIsInOnlineGame, bool& bIsServer, FString& SessionName);
 };

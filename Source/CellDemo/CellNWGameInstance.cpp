@@ -13,20 +13,22 @@ UCellNWGameInstance::UCellNWGameInstance(const FObjectInitializer& ObjectInitial
 	OnStartSessionCompleteDelegate = FOnStartSessionCompleteDelegate::CreateUObject(this, &UCellNWGameInstance::OnStartOnlineGameComplete);
 
 	/** Bind function for FINDING a Session */
-	OnFindSessionsCompleteDelegate = FOnFindSessionsCompleteDelegate::CreateUObject(this, &UCellNWGameInstance::OnFindSessionsComplete);
+	OnFindAndJoinFindSessionsCompleteDelegate = FOnFindSessionsCompleteDelegate::CreateUObject(this, &UCellNWGameInstance::OnFindAndJoinFindSessionsComplete);
 
 	/** Bind function for JOINING a Session */
 	OnJoinSessionCompleteDelegate = FOnJoinSessionCompleteDelegate::CreateUObject(this, &UCellNWGameInstance::OnJoinSessionComplete);
 
 	/** Bind function for DESTROYING a Session */
 	OnDestroySessionCompleteDelegate = FOnDestroySessionCompleteDelegate::CreateUObject(this, &UCellNWGameInstance::OnDestroySessionComplete);
+
+	bShowDebugMsg = false;
 }
 
 // *******************************
 // Hosting
 // *******************************
 
-bool UCellNWGameInstance::HostSession(TSharedPtr<const FUniqueNetId> UserId, FString MapName, FName SessionName, bool bIsLAN, bool bIsPresence, int32 MaxNumPlayers)
+bool UCellNWGameInstance::HostSession(TSharedPtr<const FUniqueNetId> UserId, FString MapName, FString SessionId, FName SessionName, bool bIsLAN, bool bIsPresence, int32 MaxNumPlayers)
 {
 	// Get the Online Subsystem to work with
 	IOnlineSubsystem* const OnlineSub = IOnlineSubsystem::Get();
@@ -57,9 +59,15 @@ bool UCellNWGameInstance::HostSession(TSharedPtr<const FUniqueNetId> UserId, FSt
 			SessionSettings->bAllowJoinViaPresenceFriendsOnly = false;
 
 			SessionSettings->Set(SETTING_MAPNAME, MapName, EOnlineDataAdvertisementType::ViaOnlineService);
+			SessionSettings->Set(FName(TEXT("SessionId")), SessionId, EOnlineDataAdvertisementType::ViaOnlineService);
 
 			// Set the delegate to the Handle of the SessionInterface
 			OnCreateSessionCompleteDelegateHandle = Sessions->AddOnCreateSessionCompleteDelegate_Handle(OnCreateSessionCompleteDelegate);
+
+			if (bShowDebugMsg)
+			{
+				GEngine->AddOnScreenDebugMessage(-1, 100.f, FColor::Red, FString::Printf(TEXT("Creating Session with SessionId: %s "), *SessionId));
+			}
 
 			// Our delegate should get called when this is complete (doesn't need to be successful!)
 			return Sessions->CreateSession(*UserId, SessionName, *SessionSettings);
@@ -67,7 +75,10 @@ bool UCellNWGameInstance::HostSession(TSharedPtr<const FUniqueNetId> UserId, FSt
 	}
 	else
 	{
-		GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("No OnlineSubsytem found!"));
+		if (bShowDebugMsg)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("No OnlineSubsytem found!"));
+		}
 	}
 
 	return false;
@@ -75,7 +86,10 @@ bool UCellNWGameInstance::HostSession(TSharedPtr<const FUniqueNetId> UserId, FSt
 
 void UCellNWGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSuccessful)
 {
-	GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("OnCreateSessionComplete %s, %d"), *SessionName.ToString(), bWasSuccessful));
+	if (bShowDebugMsg)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("OnCreateSessionComplete %s, %d"), *SessionName.ToString(), bWasSuccessful));
+	}
 
 	// Get the OnlineSubsystem so we can get the Session Interface
 	IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get();
@@ -103,7 +117,10 @@ void UCellNWGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSu
 
 void UCellNWGameInstance::OnStartOnlineGameComplete(FName SessionName, bool bWasSuccessful)
 {
-	GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("OnStartSessionComplete %s, %d"), *SessionName.ToString(), bWasSuccessful));
+	if (bShowDebugMsg)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("OnStartSessionComplete %s, %d"), *SessionName.ToString(), bWasSuccessful));
+	}
 
 	// Get the Online Subsystem so we can get the Session Interface
 	IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get();
@@ -116,12 +133,32 @@ void UCellNWGameInstance::OnStartOnlineGameComplete(FName SessionName, bool bWas
 			// Clear the delegate, since we are done with this call
 			Sessions->ClearOnStartSessionCompleteDelegate_Handle(OnStartSessionCompleteDelegateHandle);
 		}
-	}
 
-	// If the start was successful, we can open a NewMap if we want. Make sure to use "listen" as a parameter!
-	if (bWasSuccessful)
-	{
-		UGameplayStatics::OpenLevel(GetWorld(), "TopDownExampleMap", true, "listen");
+		if (bWasSuccessful)
+		{
+			APlayerController * const PlayerController = GetFirstLocalPlayerController();
+			ACellDemoPlayerController* cellDemoPlayerController = Cast<ACellDemoPlayerController>(PlayerController);
+			if (cellDemoPlayerController != nullptr)
+			{
+				FNamedOnlineSession* namedSession = Sessions.Get()->GetNamedSession(SessionName);
+				if (namedSession != nullptr)
+				{
+					FString sessionId;
+					if (namedSession->SessionSettings.Get(FName(TEXT("SessionId")), sessionId))
+					{
+						cellDemoPlayerController->OnlineSessionName = SessionName;
+						cellDemoPlayerController->OnlineSessionId = sessionId;
+						CurrentSessionId = sessionId;
+					}
+
+					FString mapName;
+					if (namedSession->SessionSettings.Get(SETTING_MAPNAME, mapName))
+					{
+						UGameplayStatics::OpenLevel(GetWorld(), FName(*mapName), true, "listen");
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -129,8 +166,14 @@ void UCellNWGameInstance::OnStartOnlineGameComplete(FName SessionName, bool bWas
 // Finding
 // *******************************
 
-void UCellNWGameInstance::FindSessions(TSharedPtr<const FUniqueNetId> UserId, bool bIsLAN, bool bIsPresence)
+void UCellNWGameInstance::FindSessions(ULocalPlayer* const Player, bool bIsLAN, bool bIsPresence, bool bAutoJoin, const FString& SessionId)
 {
+	TSharedPtr<const FUniqueNetId> UserId = Player->GetPreferredUniqueNetId();
+
+	if (bShowDebugMsg)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("FindSessions Started")));
+	}
 	// Get the OnlineSubsystem we want to work with
 	IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get();
 
@@ -159,22 +202,45 @@ void UCellNWGameInstance::FindSessions(TSharedPtr<const FUniqueNetId> UserId, bo
 			TSharedRef<FOnlineSessionSearch> SearchSettingsRef = SessionSearch.ToSharedRef();
 
 			// Set the Delegate to the Delegate Handle of the FindSession function
-			OnFindSessionsCompleteDelegateHandle = Sessions->AddOnFindSessionsCompleteDelegate_Handle(OnFindSessionsCompleteDelegate);
+			if (bAutoJoin)
+			{
+				OnFindSessionsCompleteDelegateHandle = Sessions->AddOnFindSessionsCompleteDelegate_Handle(OnFindAndJoinFindSessionsCompleteDelegate);
+				
+				ACellDemoPlayerController* controller = Cast<ACellDemoPlayerController>(Player->GetPlayerController(GetWorld()));
+				if (controller != nullptr)
+				{
+					controller->Connecting = true;
+					controller->OnlineSessionId = SessionId;
+					controller->OnConnecting();
+				}
+			}
 
 			// Finally call the SessionInterface function. The Delegate gets called once this is finished
 			Sessions->FindSessions(*UserId, SearchSettingsRef);
+
+			
 		}
 	}
 	else
 	{
 		// If something goes wrong, just call the Delegate Function directly with "false".
-		OnFindSessionsComplete(false);
+		OnFindAndJoinFindSessionsComplete(false);
 	}
 }
 
-void UCellNWGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
+void UCellNWGameInstance::OnFindAndJoinFindSessionsComplete(bool bWasSuccessful)
 {
-	GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("OFindSessionsComplete bSuccess: %d"), bWasSuccessful));
+	if (bShowDebugMsg)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("OFindSessionsComplete bSuccess: %d"), bWasSuccessful));
+	}
+
+	ULocalPlayer* const Player = GetFirstGamePlayer();
+	ACellDemoPlayerController* controller = Cast<ACellDemoPlayerController>(Player->GetPlayerController(GetWorld()));
+	if (controller != nullptr)
+	{
+		controller->Connecting = false;
+	}
 
 	// Get OnlineSubsystem we want to work with
 	IOnlineSubsystem* const OnlineSub = IOnlineSubsystem::Get();
@@ -188,18 +254,56 @@ void UCellNWGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
 			Sessions->ClearOnFindSessionsCompleteDelegate_Handle(OnFindSessionsCompleteDelegateHandle);
 
 			// Just debugging the Number of Search results. Can be displayed in UMG or something later on
-			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("Num Search Results: %d"), SessionSearch->SearchResults.Num()));
+			if (bShowDebugMsg)
+			{
+				GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("Num Search Results: %d"), SessionSearch->SearchResults.Num()));
+			}
 
 			// If we have found at least 1 session, we just going to debug them. You could add them to a list of UMG Widgets, like it is done in the BP version!
 			if (SessionSearch->SearchResults.Num() > 0)
 			{
+
 				// "SessionSearch->SearchResults" is an Array that contains all the information. You can access the Session in this and get a lot of information.
 				// This can be customized later on with your own classes to add more information that can be set and displayed
 				for (int32 SearchIdx = 0; SearchIdx < SessionSearch->SearchResults.Num(); SearchIdx++)
 				{
 					// OwningUserName is just the SessionName for now. I guess you can create your own Host Settings class and GameSession Class and add a proper GameServer Name here.
 					// This is something you can't do in Blueprint for example!
-					GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("Session Number: %d | Sessionname: %s "), SearchIdx + 1, *(SessionSearch->SearchResults[SearchIdx].Session.OwningUserName)));
+
+					// To avoid something crazy, we filter sessions from ourself
+					if (SessionSearch->SearchResults[SearchIdx].Session.OwningUserId != Player->GetPreferredUniqueNetId())
+					{
+						if (bShowDebugMsg)
+						{
+							GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("Looking for Session with id %s "), *controller->OnlineSessionId));
+						}
+
+						FString sessionId;
+						if (SessionSearch->SearchResults[SearchIdx].Session.SessionSettings.Get(FName(TEXT("SessionId")), sessionId))
+						{
+							if (bShowDebugMsg)
+							{
+								GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("Session Number: %d | SessionId: %s "), SearchIdx + 1, *sessionId));
+							}
+
+							if (sessionId == controller->OnlineSessionId)
+							{
+								// Once we found sounce a Session that is not ours, just join it. Instead of using a for loop, you could
+								// use a widget where you click on and have a reference for the GameSession it represents which you can use
+								// here
+								JoinSession(Player->GetPreferredUniqueNetId(), GameSessionName, SessionSearch->SearchResults[SearchIdx]);
+
+								ULocalPlayer* const Player = GetFirstGamePlayer();
+								ACellDemoPlayerController* controller = Cast<ACellDemoPlayerController>(Player->GetPlayerController(GetWorld()));
+								if (controller != nullptr)
+								{
+									controller->Connecting = true;
+								}
+							}
+
+							break;
+						}
+					}
 				}
 			}
 		}
@@ -214,6 +318,13 @@ bool UCellNWGameInstance::JoinSession(TSharedPtr<const FUniqueNetId> UserId, FNa
 {
 	// Return bool
 	bool bSuccessful = false;
+
+	ULocalPlayer* const Player = GetFirstGamePlayer();
+	ACellDemoPlayerController* controller = Cast<ACellDemoPlayerController>(Player->GetPlayerController(GetWorld()));
+	if (controller != nullptr)
+	{
+		controller->Connecting = false;
+	}
 
 	// Get OnlineSubsystem we want to work with
 	IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get();
@@ -231,6 +342,13 @@ bool UCellNWGameInstance::JoinSession(TSharedPtr<const FUniqueNetId> UserId, FNa
 			// Call the "JoinSession" Function with the passed "SearchResult". The "SessionSearch->SearchResults" can be used to get such a
 			// "FOnlineSessionSearchResult" and pass it. Pretty straight forward!
 			bSuccessful = Sessions->JoinSession(*UserId, SessionName, SearchResult);
+
+			ULocalPlayer* const Player = GetFirstGamePlayer();
+			ACellDemoPlayerController* controller = Cast<ACellDemoPlayerController>(Player->GetPlayerController(GetWorld()));
+			if (controller != nullptr)
+			{
+				controller->Connecting = true;
+			}
 		}
 	}
 
@@ -239,7 +357,17 @@ bool UCellNWGameInstance::JoinSession(TSharedPtr<const FUniqueNetId> UserId, FNa
 
 void UCellNWGameInstance::OnJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type Result)
 {
-	GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("OnJoinSessionComplete %s, %d"), *SessionName.ToString(), static_cast<int32>(Result)));
+	if (bShowDebugMsg)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("OnJoinSessionComplete %s, %d"), *SessionName.ToString(), static_cast<int32>(Result)));
+	}
+
+	ULocalPlayer* const Player = GetFirstGamePlayer();
+	ACellDemoPlayerController* controller = Cast<ACellDemoPlayerController>(Player->GetPlayerController(GetWorld()));
+	if (controller != nullptr)
+	{
+		controller->Connecting = false;
+	}
 
 	// Get the OnlineSubsystem we want to work with
 	IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get();
@@ -268,6 +396,20 @@ void UCellNWGameInstance::OnJoinSessionComplete(FName SessionName, EOnJoinSessio
 				// how it really looks like
 				PlayerController->ClientTravel(TravelURL, ETravelType::TRAVEL_Absolute);
 			}
+
+			ACellDemoPlayerController* cellDemoPlayerController = Cast<ACellDemoPlayerController>(PlayerController);
+			if (cellDemoPlayerController != nullptr)
+			{
+				FString sessionId;
+				FNamedOnlineSession* namedSession = Sessions.Get()->GetNamedSession(SessionName);
+				if (namedSession != nullptr && namedSession->SessionSettings.Get(FName(TEXT("SessionId")), sessionId))
+				{
+					cellDemoPlayerController->OnlineSessionName = SessionName;
+					cellDemoPlayerController->OnlineSessionId = sessionId;
+
+					cellDemoPlayerController->OnConnected();
+				}
+			}
 		}
 	}
 }
@@ -279,7 +421,10 @@ void UCellNWGameInstance::OnJoinSessionComplete(FName SessionName, EOnJoinSessio
 
 void UCellNWGameInstance::OnDestroySessionComplete(FName SessionName, bool bWasSuccessful)
 {
-	GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("OnDestroySessionComplete %s, %d"), *SessionName.ToString(), bWasSuccessful));
+	if (bShowDebugMsg)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("OnDestroySessionComplete %s, %d"), *SessionName.ToString(), bWasSuccessful));
+	}
 
 	// Get the OnlineSubsystem we want to work with
 	IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get();
@@ -293,10 +438,20 @@ void UCellNWGameInstance::OnDestroySessionComplete(FName SessionName, bool bWasS
 			// Clear the Delegate
 			Sessions->ClearOnDestroySessionCompleteDelegate_Handle(OnDestroySessionCompleteDelegateHandle);
 
+			APlayerController * const PlayerController = GetFirstLocalPlayerController();
+			ACellDemoPlayerController* cellDemoPlayerController = Cast<ACellDemoPlayerController>(PlayerController);
+			if (cellDemoPlayerController != nullptr)
+			{
+				cellDemoPlayerController->OnlineSessionName = NAME_None;
+				cellDemoPlayerController->OnlineSessionId = FString("");
+				CurrentSessionId = FString("");
+				cellDemoPlayerController->OnDisconnected();
+			}
+
 			// If it was successful, we just load another level (could be a MainMenu!)
 			if (bWasSuccessful)
 			{
-				UGameplayStatics::OpenLevel(GetWorld(), "TopDownExampleMap", true);
+				UGameplayStatics::OpenLevel(GetWorld(), "Phone", true);
 			}
 		}
 	}
@@ -307,20 +462,27 @@ void UCellNWGameInstance::OnDestroySessionComplete(FName SessionName, bool bWasS
 // *******************************
 
 
-void UCellNWGameInstance::StartOnlineGame(FString MapName)
+void UCellNWGameInstance::StartOnlineGame(FString MapName, int NumberOfPlayer, FString SessionId)
 {
 	// Creating a local player where we can get the UserID from
 	ULocalPlayer* const Player = GetFirstGamePlayer();
 
 	// Call our custom HostSession function. GameSessionName is a GameInstance variable
-	HostSession(Player->GetPreferredUniqueNetId(), MapName, GameSessionName, true, true, 4);
+	HostSession(Player->GetPreferredUniqueNetId(), MapName, SessionId, GameSessionName, true, true, NumberOfPlayer);
 }
 
-void UCellNWGameInstance::FindOnlineGames()
+void UCellNWGameInstance::FindOnlineGames(FString SessionId)
 {
 	ULocalPlayer* const Player = GetFirstGamePlayer();
 
-	FindSessions(Player->GetPreferredUniqueNetId(), true, true);
+	FindSessions(Player, true, true, false, SessionId);
+}
+
+void UCellNWGameInstance::FindAndJoinOnlineGame(FString SessionId)
+{
+	ULocalPlayer* const Player = GetFirstGamePlayer();
+
+	FindSessions(Player, true, true, true, SessionId);
 }
 
 void UCellNWGameInstance::JoinOnlineGame()
@@ -366,9 +528,12 @@ void UCellNWGameInstance::DestroySessionAndLeaveGame()
 	}
 }
 
-void UCellNWGameInstance::GetOnlineGameStatus(bool& bIsInOnlineGame, bool& bIsServer)
+void UCellNWGameInstance::GetOnlineGameStatus(ACellDemoPlayerController* controller, bool& bIsInOnlineGame, bool& bIsServer, FString& SessionName)
 {
-
+	if (controller == nullptr)
+	{
+		return;
+	}
 	bIsInOnlineGame = false;
 	bIsServer = false;
 	IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get();
