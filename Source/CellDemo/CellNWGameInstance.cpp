@@ -291,7 +291,7 @@ void UCellNWGameInstance::OnFindAndJoinFindSessionsComplete(bool bWasSuccessful)
 								// Once we found sounce a Session that is not ours, just join it. Instead of using a for loop, you could
 								// use a widget where you click on and have a reference for the GameSession it represents which you can use
 								// here
-								JoinSession(Player->GetPreferredUniqueNetId(), GameSessionName, SessionSearch->SearchResults[SearchIdx]);
+								JoinOnlineSession(Player->GetPreferredUniqueNetId(), GameSessionName, SessionSearch->SearchResults[SearchIdx]);
 
 								ULocalPlayer* const Player = GetFirstGamePlayer();
 								ACellDemoPlayerController* controller = Cast<ACellDemoPlayerController>(Player->GetPlayerController(GetWorld()));
@@ -314,7 +314,7 @@ void UCellNWGameInstance::OnFindAndJoinFindSessionsComplete(bool bWasSuccessful)
 // Joining
 // *******************************
 
-bool UCellNWGameInstance::JoinSession(TSharedPtr<const FUniqueNetId> UserId, FName SessionName, const FOnlineSessionSearchResult& SearchResult)
+bool UCellNWGameInstance::JoinOnlineSession(TSharedPtr<const FUniqueNetId> UserId, FName SessionName, const FOnlineSessionSearchResult& SearchResult)
 {
 	// Return bool
 	bool bSuccessful = false;
@@ -339,7 +339,7 @@ bool UCellNWGameInstance::JoinSession(TSharedPtr<const FUniqueNetId> UserId, FNa
 			// Set the Handle again
 			OnJoinSessionCompleteDelegateHandle = Sessions->AddOnJoinSessionCompleteDelegate_Handle(OnJoinSessionCompleteDelegate);
 
-			// Call the "JoinSession" Function with the passed "SearchResult". The "SessionSearch->SearchResults" can be used to get such a
+			// Call the "JoinOnlineSession" Function with the passed "SearchResult". The "SessionSearch->SearchResults" can be used to get such a
 			// "FOnlineSessionSearchResult" and pass it. Pretty straight forward!
 			bSuccessful = Sessions->JoinSession(*UserId, SessionName, SearchResult);
 
@@ -505,7 +505,7 @@ void UCellNWGameInstance::JoinOnlineGame()
 				// Once we found sounce a Session that is not ours, just join it. Instead of using a for loop, you could
 				// use a widget where you click on and have a reference for the GameSession it represents which you can use
 				// here
-				JoinSession(Player->GetPreferredUniqueNetId(), GameSessionName, SearchResult);
+				JoinOnlineSession(Player->GetPreferredUniqueNetId(), GameSessionName, SearchResult);
 				break;
 			}
 		}

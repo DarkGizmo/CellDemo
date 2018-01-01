@@ -106,7 +106,7 @@ public:
 	*
 	*	@return bool true if successful, false otherwise
 	*/
-	bool JoinSession(TSharedPtr<const FUniqueNetId> UserId, FName SessionName, const FOnlineSessionSearchResult& SearchResult);
+	bool JoinOnlineSession(TSharedPtr<const FUniqueNetId> UserId, FName SessionName, const FOnlineSessionSearchResult& SearchResult);
 
 	/** Delegate for joining a session */
 	FOnJoinSessionCompleteDelegate OnJoinSessionCompleteDelegate;
